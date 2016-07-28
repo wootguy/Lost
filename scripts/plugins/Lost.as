@@ -347,7 +347,7 @@ void showNameTag(CBasePlayer@ observer, CBaseEntity@ target, bool tags_only)
 		
 	string name = target.pev.netname;
 	
-	if (name.Length() > maxNameLength)
+	if (int(name.Length()) > maxNameLength)
 	{
 		int middle = name.Length() / 2;
 		name = name.SubString(0, 7) + ".." + name.SubString(name.Length()-7, name.Length());
@@ -471,11 +471,6 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 		if ( args[0] == ".lost" )
 		{
 			int numPlayers = player_states.getSize()-1;
-			if (numPlayers <= 0)
-			{
-				g_PlayerFuncs.SayText(plr, "Unable to track players. No one else is playing.");
-				return true;
-			}
 			
 			CBasePlayer@ targetPlr = null;
 			bool tagsOnly = false;
@@ -522,7 +517,12 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 				if (targetPlr !is null)
 					g_PlayerFuncs.SayText(plr, "Tracking " + targetPlr.pev.netname);
 				else
-					g_PlayerFuncs.SayText(plr, "Tracking " + numPlayers + " " + plrTxt);
+				{
+					if (numPlayers > 0)
+						g_PlayerFuncs.SayText(plr, "Tracking " + numPlayers + " " + plrTxt);
+					else
+						g_PlayerFuncs.SayText(plr, "Tracking enabled (no other players have joined yet)");
+				}
 			}
 			
 			return true;
