@@ -154,8 +154,8 @@ void init()
 
 void PluginInit()
 {
-	g_Module.ScriptInfo.SetAuthor( "Drake \"w00tguy\" Hunter" );
-	g_Module.ScriptInfo.SetContactInfo( "w00tguy123@gmail.com" );
+	g_Module.ScriptInfo.SetAuthor( "w00tguy" );
+	g_Module.ScriptInfo.SetContactInfo( "w00tguy123 - forums.svencoop.com" );
 	
 	g_Hooks.RegisterHook( Hooks::Player::ClientSay, @ClientSay );
 	g_Hooks.RegisterHook( Hooks::Player::ClientDisconnect, @ClientLeave );
