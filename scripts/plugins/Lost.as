@@ -7,13 +7,13 @@ class PlayerState
 
 // persistent-ish player data, organized by steam-id or username if on a LAN server, values are @PlayerState
 dictionary player_states;
-bool debug_mode = false;
 bool abort_updates = false;
 
 string font_folder = "sprites/as_lost/consolas/";
 array<string> font_chars;
 int MAX_FONT_CHARS = 96;
 float updateFreq = 0.07f; // delay between name tag updates
+int maxNameLength = 16;
 
 dictionary g_charmap;
 void loadCharMap()
@@ -162,8 +162,6 @@ void PluginInit()
 	g_Hooks.RegisterHook( Hooks::Player::ClientPutInServer, @ClientJoin );
 	
 	g_Hooks.RegisterHook( Hooks::Game::MapChange, @MapChange );
-	
-	debug_mode = true;
 	
 	player_states.deleteAll();
 	
@@ -349,7 +347,7 @@ void showNameTag(CBasePlayer@ observer, CBaseEntity@ target, bool tags_only)
 		
 	string name = target.pev.netname;
 	
-	if (name.Length() > 16)
+	if (name.Length() > maxNameLength)
 	{
 		int middle = name.Length() / 2;
 		name = name.SubString(0, 7) + ".." + name.SubString(name.Length()-7, name.Length());
