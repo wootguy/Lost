@@ -225,6 +225,8 @@ HookReturnCode ClientLeave(CBasePlayer@ leaver)
 		CBaseEntity@ plr = state.plr;
 		if (stateKeys[i] == steamId)
 		{
+			if (state.interval !is null)
+				g_Scheduler.RemoveTimer(state.interval);
 			state.plr = null;
 			break;
 		}
@@ -320,7 +322,6 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 	float y = 0;
 	for (uint k = 0; k < lines.length(); k++)
 	{
-		println("LE NAME: " + lines[k].Length());
 		float x = -float(lines[k].Length() * charWidth) / 2.0f;
 		x += charWidth * 0.5f;
 
