@@ -20,7 +20,7 @@ class PlayerState
 dictionary player_states;
 bool abort_updates = false;
 
-string font_sprite = "sprites/as_lost/consolas24.spr";
+string font_sprite = "sprites/as_lost/consolas96.spr";
 int maxNameLength = 16;
 
 // Will create a new state if the requested one does not exit
@@ -161,7 +161,7 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 	//te_beampoints(observer.pev.origin, observer.pev.origin + newlineAxis*128);
 	
 	float charWidth = 12.0f*scale;	
-	float charHeight = 24.0f*scale;
+	float charHeight = 18.0f*scale;
 	pos.z += charHeight*lines.length()*0.5f;
 	
 	if (dot_only) {
