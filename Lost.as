@@ -4,15 +4,16 @@ class PlayerState
 	EHandle targetPlr; // if set, hud will only display for this player
 	CScheduledFunction@ interval; // handle to the interval
 }
+ 
 
 // persistent-ish player data, organized by steam-id or username if on a LAN server, values are @PlayerState
 dictionary player_states;
 bool abort_updates = false;
 
 string font_folder = "sprites/as_lost/consolas/";
-array<string> font_chars;
+string font_sprite = "sprites/as_lost/consolas24.spr";
 int MAX_FONT_CHARS = 96;
-float updateFreq = 0.07f; // delay between name tag updates
+float updateFreq = 0.1f; // delay between name tag updates
 int maxNameLength = 16;
 
 dictionary g_charmap;
@@ -138,14 +139,7 @@ PlayerState@ getPlayerState(CBasePlayer@ plr)
 }
 
 void init()
-{
-	for (int i = 0; i < MAX_FONT_CHARS; i++)
-	{
-		string char_spr = font_folder + i + ".spr";
-		g_Game.PrecacheModel(char_spr);
-		font_chars.insertLast(char_spr);
-	}
-	
+{	
 	loadCharMap();
 	populatePlayerStates();
 	//g_Scheduler.SetTimeout("loadMapWaypoints", 0.5);
@@ -163,15 +157,13 @@ void PluginInit()
 	
 	g_Hooks.RegisterHook( Hooks::Game::MapChange, @MapChange );
 	
-	player_states.deleteAll();
-	
 	init();
 }
 
 void MapInit()
 {
+	g_Game.PrecacheModel(font_sprite);
 	abort_updates = false;
-	init();
 }
 
 HookReturnCode MapChange()
@@ -319,6 +311,9 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 	
 	//te_beampoints(observer.pev.origin, textOri + textVert);
 	
+	Vector beamCharExtent = newlineAxis*charHeight*0.5f;
+	int beamWidth = int(charWidth*4);
+	
 	float y = 0;
 	for (uint k = 0; k < lines.length(); k++)
 	{
@@ -331,8 +326,14 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 			string ch = string(lines[k][i]);
 			if (g_charmap.exists(ch))
 				c = int(g_charmap[ch]);
-			//te_explosion(pos + textAxis*x, font_chars[c], int(scale*10), 9, 14);
-			te_sprite(pos + textAxis*x + newlineAxis*y, font_chars[c], int(scale*10), 180, MSG_ONE_UNRELIABLE, observer.edict());
+			
+			if (c == 0)
+				continue; // don't render spaces
+			
+			Vector charPos = pos + textAxis*x + newlineAxis*y;
+			
+			te_beampoints(charPos - beamCharExtent, charPos + beamCharExtent, font_sprite, c-1, 0, 1, beamWidth, 0, WHITE, 0, MSG_ONE_UNRELIABLE, observer.edict());
+			
 			x += charWidth;
 		}
 
