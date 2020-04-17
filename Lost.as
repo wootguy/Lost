@@ -1,8 +1,18 @@
+enum tracking_modes {
+	MODE_FULL,	 // player name tags shown through walls
+	MODE_LOCAL,  // player name tags shown on visible players only. No dots.
+	MODE_SIMPLE  // player dots shown through walls
+}
+
 class PlayerState
 {
 	EHandle plr;
-	EHandle targetPlr; // if set, hud will only display for this player
+	dictionary targetPlrs; // player state keys
 	CScheduledFunction@ interval; // handle to the interval
+	bool enabled = false;
+	bool filteredTracking = false;
+	int updateRate = 1;
+	int mode = MODE_FULL;
 }
  
 
@@ -10,10 +20,8 @@ class PlayerState
 dictionary player_states;
 bool abort_updates = false;
 
-string font_folder = "sprites/as_lost/consolas/";
 string font_sprite = "sprites/as_lost/consolas24.spr";
 int MAX_FONT_CHARS = 96;
-float updateFreq = 0.1f; // delay between name tag updates
 int maxNameLength = 16;
 
 dictionary g_charmap;
@@ -200,6 +208,7 @@ void populatePlayerStates()
 HookReturnCode ClientJoin( CBasePlayer@ plr )
 {
 	getPlayerState(plr);
+	
 	return HOOK_CONTINUE;
 }
 
@@ -228,8 +237,11 @@ HookReturnCode ClientLeave(CBasePlayer@ leaver)
 	return HOOK_CONTINUE;
 }
 
-void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string text, float scale)
+void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string text, float scale, int life, bool dot_only)
 {
+	if (dot_only) {
+		text = "O";
+	}
 	array<string> lines = text.Split("\n");
 	
 	// adjust scale so that it is readable at a distance
@@ -255,6 +267,10 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 	float charHeight = 24.0f*scale;
 	pos.z += charHeight*lines.length()*0.5f;
 	
+	if (dot_only) {
+		charWidth = charHeight = 32.0f;
+	}
+	
 	// calculate a bounding square for the text
 	float height = lines.length()*charHeight;
 	float width = 0;
@@ -267,7 +283,7 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 	Vector textVert = newlineAxis*height*0.5f;
 	Vector textHori = textAxis*width*0.5f;
 	
-	
+
 	TraceResult tr, tr2;
 	CBaseEntity@ pHit, pHit2;
 	edict_t@ no_collide = plr !is null ? plr.edict() : null;
@@ -311,9 +327,13 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 	
 	//te_beampoints(observer.pev.origin, textOri + textVert);
 	
+	if (dot_only) {
+		te_sprite(pos, "sprites/glow01.spr", int(scale*10), 255, MSG_ONE_UNRELIABLE, observer.edict());
+		return;
+	}
+	
 	Vector beamCharExtent = newlineAxis*charHeight*0.5f;
 	int beamWidth = int(charWidth*4);
-	
 	float y = 0;
 	for (uint k = 0; k < lines.length(); k++)
 	{
@@ -322,17 +342,18 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 
 		for (uint i = 0; i < lines[k].Length(); i++)
 		{
-			int c = MAX_FONT_CHARS-1;
+			int c = 0;
 			string ch = string(lines[k][i]);
-			if (g_charmap.exists(ch))
+			if (!dot_only && g_charmap.exists(ch))
 				c = int(g_charmap[ch]);
 			
-			if (c == 0)
+			if (c == 0) {
 				continue; // don't render spaces
+			}
 			
 			Vector charPos = pos + textAxis*x + newlineAxis*y;
-			
-			te_beampoints(charPos - beamCharExtent, charPos + beamCharExtent, font_sprite, c-1, 0, 1, beamWidth, 0, WHITE, 0, MSG_ONE_UNRELIABLE, observer.edict());
+
+			te_beampoints(charPos - beamCharExtent, charPos + beamCharExtent, font_sprite, c, 0, life, beamWidth, 0, WHITE, 0, MSG_ONE_UNRELIABLE, observer.edict());
 			
 			x += charWidth;
 		}
@@ -342,7 +363,7 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 }
 
 // display name overhead
-void showNameTag(CBasePlayer@ observer, CBaseEntity@ target, bool tags_only)
+void showNameTag(CBasePlayer@ observer, CBaseEntity@ target, PlayerState@ state, bool dot_only, bool visible_only)
 {
 	if (observer is null or target is null or abort_updates)
 		return;
@@ -384,14 +405,15 @@ void showNameTag(CBasePlayer@ observer, CBaseEntity@ target, bool tags_only)
 	Vector pos;
 	if (lineOfSight)
 	{
-		pos = target.pev.origin;
-		pos.z += 50.0f;
-		dstr = "";
-		displayText(pos, observer, target, dstr + name, 0.2f);
+		if (!dot_only) {
+			pos = target.pev.origin;
+			pos.z += 50.0f;
+			dstr = "";
+			displayText(pos, observer, target, dstr + name, 0.2f, state.updateRate, false);
+		}
 	}
-	else
-	{
-		//if (1==1) return;
+	else if (!visible_only)
+	{		
 		pos = observer.pev.origin + delta.Normalize()*maxDist*0.99f;
 		
 		if (bodySight)
@@ -401,28 +423,77 @@ void showNameTag(CBasePlayer@ observer, CBaseEntity@ target, bool tags_only)
 		}
 		else
 			pos.z += 20.0f;
-		if (!tags_only)
-			displayText(pos, observer, target, dstr + name, 0.2f);
+		
+		displayText(pos, observer, target, dstr + name, 0.2f, state.updateRate, dot_only);
 	}
 }
 
-void helpLostPlayer(CBasePlayer@ plr, CBasePlayer@ target, bool tags_only)
-{	
+class LostTarget {
+	CBaseEntity@ target;
+	float observerDot; // how closely the target aligns with the observer's center of view
+}
+
+void helpLostPlayer(EHandle h_plr)
+{
+	CBasePlayer@ plr = cast<CBasePlayer@>(h_plr.GetEntity());
+	
+	if (plr is null) {
+		return;
+	}
+	
+	PlayerState@ observerState = getPlayerState(plr);
+	Math.MakeVectors( plr.pev.v_angle );
+	Vector lookDir = g_Engine.v_forward;
+	lookDir.Normalize();
+	array<LostTarget> targets; // players most in line with the observers view (should get name tags)
+
 	array<string>@ stateKeys = player_states.getKeys();
 	for (uint i = 0; i < stateKeys.length(); i++)
 	{
 		PlayerState@ state = cast<PlayerState@>( player_states[stateKeys[i]] );
-		CBaseEntity@ p = state.plr;
-		if (target !is null and target.entindex() != p.entindex())
+		CBasePlayer@ target = cast<CBasePlayer@>(state.plr.GetEntity());
+		if (target is null or !target.IsConnected() or target.entindex() == plr.entindex())
 			continue;
-		showNameTag(plr, p, tags_only);
+		if (observerState.filteredTracking and !observerState.targetPlrs.exists(stateKeys[i]))
+			continue;
+		
+		Vector delta = (target.pev.origin - plr.pev.origin).Normalize();
+		
+		LostTarget lostTarget;
+		@lostTarget.target = @target;
+		lostTarget.observerDot = DotProduct(lookDir, delta);
+		
+		targets.insertLast(lostTarget);
+	}
+	
+	if (observerState.mode != MODE_SIMPLE) {
+		if (targets.size() > 0) {
+			targets.sort(function(a, b) {		
+				return a.observerDot > b.observerDot; 
+			});
+		}
+	}
+	
+	for (uint i = 0; i < targets.size(); i++) {
+		if (i < 3 && observerState.mode != MODE_SIMPLE) {
+			showNameTag(plr, targets[i].target, observerState, false, observerState.mode == MODE_LOCAL);
+		} else if (observerState.mode != MODE_LOCAL) {
+			showNameTag(plr, targets[i].target, observerState, true, false);
+		}
+	}
+	
+	//for (int i = 0)
+	
+	if (observerState.enabled) {
+		float rate = Math.max(observerState.updateRate / 10.0f, 0.1f);
+		g_Scheduler.SetTimeout("helpLostPlayer", rate, h_plr);
 	}
 }
 
 string getPlayerUniqueId(CBasePlayer@ plr)
 {
 	string steamId = g_EngineFuncs.GetPlayerAuthId( plr.edict() );
-	if (steamId == 'STEAM_ID_LAN' or steamId == 'STEAM_ID_BOT') {
+	if (steamId == 'STEAM_ID_LAN' or steamId == 'STEAM_ID_BOT' or steamId == 'BOT') {
 		steamId = plr.pev.netname;
 	}
 	return steamId;
@@ -472,60 +543,78 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 	{
 		if ( args[0] == ".lost" )
 		{
-			int numPlayers = player_states.getSize()-1;
-			
 			CBasePlayer@ targetPlr = null;
-			bool tagsOnly = false;
-			if ( args.ArgC() >= 2 )
-			{
-				if (args[1][0] == '\\')
-					tagsOnly = true;
-				else
-				{
-					@targetPlr = getPlayer(plr, args[1]);
-					if (targetPlr is null)
-						return true;
-					if (targetPlr.entindex() == plr.entindex())
-					{
-						g_PlayerFuncs.SayText(plr, "Can't track yourself!");
-						return true;
-					}
-				}
+			if ( args.ArgC() >= 3 && args[1] == "delay" ) {				
+				int newRate = atoi(args[2]);
+				
+				newRate = Math.min(10, newRate);
+				newRate = Math.max(1, newRate);
+				
+				g_PlayerFuncs.SayText(plr, "Update delay set to " + newRate + "\n");
+				
+				state.updateRate = newRate;
+				return true;
 			}
 			
-			float duration = 5.0f; // default 10 seconds
-			int numIntervals = int((duration / updateFreq));
-			numIntervals = -1;
+			if ( args.ArgC() >= 3 && args[1] == "mode" ) {				
+				string mode = args[2].ToLowercase();
+				
+				if (mode == "full") {
+					g_PlayerFuncs.SayText(plr, "Tracking mode set to FULL. Name tags shown for all players.\n");
+					state.mode = MODE_FULL;
+				} else if (mode == "local") {
+					g_PlayerFuncs.SayText(plr, "Tracking mode set to LOCAL. Name tags shown for visible players only.\n");
+					state.mode = MODE_LOCAL;
+				} else if (mode == "simple") {
+					g_PlayerFuncs.SayText(plr, "Tracking mode set to SIMPLE. Dots shown for invisible players.\n");
+					state.mode = MODE_SIMPLE;
+				} else {
+					g_PlayerFuncs.SayText(plr, "Unknown mode. Must be FULL, SIMPLE, or LOCAL\n");
+				}
+				
+				return true;
+			}
 			
-			if (state.interval !is null)
+			if ( args.ArgC() >= 2 )
 			{
-				g_Scheduler.RemoveTimer(state.interval);
-				@state.interval = null;
-				if (targetPlr is null and !tagsOnly)
+				@targetPlr = getPlayer(plr, args[1]);
+				if (targetPlr is null)
+					return true;
+				if (targetPlr.entindex() == plr.entindex())
 				{
-					g_PlayerFuncs.SayText(plr, "Tracking disabled");
+					g_PlayerFuncs.SayText(plr, "Can't track yourself!\n");
 					return true;
 				}
 			}
-			@state.interval = g_Scheduler.SetInterval("helpLostPlayer", updateFreq, numIntervals, @plr, @targetPlr, tagsOnly);
 			
-			if (tagsOnly)
+			if (state.enabled and targetPlr is null)
 			{
-				g_PlayerFuncs.SayText(plr, "Name tags enabled");
+				g_PlayerFuncs.SayText(plr, "Player tracking disabled\n");
+				state.targetPlrs.deleteAll();
+				state.enabled = false;
+				return true;
 			}
-			else
-			{
-				string plrTxt = numPlayers == 1 ? "player" : "players";
-				if (targetPlr !is null)
-					g_PlayerFuncs.SayText(plr, "Tracking " + targetPlr.pev.netname);
-				else
-				{
-					if (numPlayers > 0)
-						g_PlayerFuncs.SayText(plr, "Tracking " + numPlayers + " " + plrTxt);
-					else
-						g_PlayerFuncs.SayText(plr, "Tracking enabled (no other players have joined yet)");
+			
+			state.enabled = true;
+			
+			if (targetPlr !is null) {
+				state.filteredTracking = true;
+				
+				string targetId = getPlayerUniqueId(targetPlr);
+				if (state.targetPlrs.exists(targetId)) {
+					state.targetPlrs.delete(targetId);
+					g_PlayerFuncs.SayText(plr, "Tracking disabled for player " + targetPlr.pev.netname + "\n");
+				} else {
+					state.targetPlrs[targetId] = true;
+					g_PlayerFuncs.SayText(plr, "Tracking player " + targetPlr.pev.netname + "\n");
 				}
 			}
+			else {
+				state.filteredTracking = false;
+				g_PlayerFuncs.SayText(plr, "Player tracking enabled\n");
+			}
+			
+			g_Scheduler.SetTimeout("helpLostPlayer", 0.0f, EHandle(plr));
 			
 			return true;
 		}
