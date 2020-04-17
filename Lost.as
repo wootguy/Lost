@@ -21,109 +21,7 @@ dictionary player_states;
 bool abort_updates = false;
 
 string font_sprite = "sprites/as_lost/consolas24.spr";
-int MAX_FONT_CHARS = 96;
 int maxNameLength = 16;
-
-dictionary g_charmap;
-void loadCharMap()
-{
-	g_charmap[' '] = 0;
-	g_charmap['!'] = 1;
-	g_charmap['"'] = 2;
-	g_charmap['#'] = 3;
-	g_charmap['$'] = 4;
-	g_charmap['%'] = 5;
-	g_charmap['&'] = 6;
-	g_charmap["'"] = 7;
-	g_charmap['('] = 8;
-	g_charmap[')'] = 9;
-	g_charmap['*'] = 10;
-	g_charmap['+'] = 11;
-	g_charmap[','] = 12;
-	g_charmap['-'] = 13;
-	g_charmap['.'] = 14;
-	g_charmap['/'] = 15;
-	g_charmap['0'] = 16;
-	g_charmap['1'] = 17;
-	g_charmap['2'] = 18;
-	g_charmap['3'] = 19;
-	g_charmap['4'] = 20;
-	g_charmap['5'] = 21;
-	g_charmap['6'] = 22;
-	g_charmap['7'] = 23;
-	g_charmap['8'] = 24;
-	g_charmap['9'] = 25;
-	g_charmap[':'] = 26;
-	g_charmap[';'] = 27;
-	g_charmap['<'] = 28;
-	g_charmap['='] = 29;
-	g_charmap['>'] = 30;
-	g_charmap['?'] = 31;
-	g_charmap['@'] = 32;
-	g_charmap['A'] = 33;
-	g_charmap['B'] = 34;
-	g_charmap['C'] = 35;
-	g_charmap['D'] = 36;
-	g_charmap['E'] = 37;
-	g_charmap['F'] = 38;
-	g_charmap['G'] = 39;
-	g_charmap['H'] = 40;
-	g_charmap['I'] = 41;
-	g_charmap['J'] = 42;
-	g_charmap['K'] = 43;
-	g_charmap['L'] = 44;
-	g_charmap['M'] = 45;
-	g_charmap['N'] = 46;
-	g_charmap['O'] = 47;
-	g_charmap['P'] = 48;
-	g_charmap['Q'] = 49;
-	g_charmap['R'] = 50;
-	g_charmap['S'] = 51;
-	g_charmap['T'] = 52;
-	g_charmap['U'] = 53;
-	g_charmap['V'] = 54;
-	g_charmap['W'] = 55;
-	g_charmap['X'] = 56;
-	g_charmap['Y'] = 57;
-	g_charmap['Z'] = 58;
-	g_charmap['['] = 59;
-	g_charmap['\\'] = 60;
-	g_charmap[']'] = 61;
-	g_charmap['^'] = 62;
-	g_charmap['_'] = 63;
-	g_charmap['`'] = 64;
-	g_charmap['a'] = 65;
-	g_charmap['b'] = 66;
-	g_charmap['c'] = 67;
-	g_charmap['d'] = 68;
-	g_charmap['e'] = 69;
-	g_charmap['f'] = 70;
-	g_charmap['g'] = 71;
-	g_charmap['h'] = 72;
-	g_charmap['i'] = 73;
-	g_charmap['j'] = 74;
-	g_charmap['k'] = 75;
-	g_charmap['l'] = 76;
-	g_charmap['m'] = 77;
-	g_charmap['n'] = 78;
-	g_charmap['o'] = 79;
-	g_charmap['p'] = 80;
-	g_charmap['q'] = 81;
-	g_charmap['r'] = 82;
-	g_charmap['s'] = 83;
-	g_charmap['t'] = 84;
-	g_charmap['u'] = 85;
-	g_charmap['v'] = 86;
-	g_charmap['w'] = 87;
-	g_charmap['x'] = 88;
-	g_charmap['y'] = 89;
-	g_charmap['z'] = 90;
-	g_charmap['{'] = 91;
-	g_charmap['|'] = 92;
-	g_charmap['}'] = 93;
-	g_charmap['~'] = 94;
-	// 95th character is the "error" code and just shows a box
-}
 
 // Will create a new state if the requested one does not exit
 PlayerState@ getPlayerState(CBasePlayer@ plr)
@@ -147,8 +45,7 @@ PlayerState@ getPlayerState(CBasePlayer@ plr)
 }
 
 void init()
-{	
-	loadCharMap();
+{
 	populatePlayerStates();
 	//g_Scheduler.SetTimeout("loadMapWaypoints", 0.5);
 	//g_Scheduler.SetInterval("renderAllWaypoints", 0.1);
@@ -342,13 +239,11 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 
 		for (uint i = 0; i < lines[k].Length(); i++)
 		{
-			int c = 0;
-			string ch = string(lines[k][i]);
-			if (!dot_only && g_charmap.exists(ch))
-				c = int(g_charmap[ch]);
-			
+			int c = int(lines[k][i]) - 32;			
 			if (c == 0) {
 				continue; // don't render spaces
+			} else if (c < 0 || c > 94) {
+				c = 0; // show unknown char
 			}
 			
 			Vector charPos = pos + textAxis*x + newlineAxis*y;
@@ -595,8 +490,6 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 				return true;
 			}
 			
-			state.enabled = true;
-			
 			if (targetPlr !is null) {
 				state.filteredTracking = true;
 				
@@ -614,7 +507,10 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 				g_PlayerFuncs.SayText(plr, "Player tracking enabled\n");
 			}
 			
-			g_Scheduler.SetTimeout("helpLostPlayer", 0.0f, EHandle(plr));
+			if (!state.enabled) {
+				state.enabled = true;
+				g_Scheduler.SetTimeout("helpLostPlayer", 0.0f, EHandle(plr));
+			}
 			
 			return true;
 		}
