@@ -9,13 +9,17 @@ Here's a demo of it:
 
 # Commands
 
-`.lost` = Toggles tracking for all players  
-`.lost \` = Toggles name tags for all players (does not show through walls).
+- `.lost` = Toggles tracking for all players  
+- `.lost delay [1-10]` = Change how often tags are updated. Increase this if you're getting excessive flickering.
+- `.lost mode [mode]` = Change tracking mode
+  - `.lost mode full` = Default. Show name tags for visible/invisible players
+  - `.lost mode simple` = Only show dots for invisible players.
+  - `.lost mode local` = Show name tags for visible players, and nothing for invisible players.
 
-If you specify a player name after the `.lost` command, tracking will be enabled for only that player (e.g. `.lost w00tguy`). You can use a partial name or steamID here too (e.g. `.lost guy`). Names with spaces in them should be surrounded with quotes.
+If you specify a player name after the `.lost` command, tracking will be enabled for only that player (e.g. `.lost w00tguy`). You can use a partial name or steamID here too (e.g. `.lost guy`). Names with spaces in them should be surrounded with quotes. You can repeat this command to track other players.
 
 # Server Impact
 
-Due to limitations with temporary entities, each font character is an individual sprite. 96 sprites are precached in total. The download size is only 107 KB so this goes pretty quickly even on slow DL (about 13 seconds).
+The effect is created with temporary entities, so there should be no stability problems. Net usage might be high with a lot of players though. The worst case scenario of 32 players all >1000 meters away with long names would create 63 beams and 29 sprites. Clients can disable the tracking or increase the update delay with `.lost delay` if there is any lag or flickering.
 
-The effect is created with temporary entities, so there should be no stability problems. Net usage might be high with a lot of players though. The doomsday scenario of 32 players all >100 meters away would create about 640 sprites, which is a bit over the max allowed before things start disappearing (~500). Clients can disable the tracking to fix the lag when this happens. You can also change the max name length in the script (line 16) if you have 26+ slots.
+Only 1 sprite is precached.
