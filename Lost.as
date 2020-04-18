@@ -24,6 +24,8 @@ bool abort_updates = false;
 string font_sprite = "sprites/as_lost/consolas96.spr";
 int maxNameLength = 16;
 
+CCVar@ cvar_disabled;
+
 // Will create a new state if the requested one does not exit
 PlayerState@ getPlayerState(CBasePlayer@ plr)
 {
@@ -62,6 +64,8 @@ void PluginInit()
 	g_Hooks.RegisterHook( Hooks::Player::ClientPutInServer, @ClientJoin );
 	
 	g_Hooks.RegisterHook( Hooks::Game::MapChange, @MapChange );
+	
+	@cvar_disabled = CCVar("disabled", 0, "disables tracking", ConCommandFlag::AdminOnly);
 	
 	init();
 }
@@ -387,7 +391,7 @@ void helpLostPlayer(EHandle h_plr)
 	
 	//for (int i = 0)
 	
-	if (observerState.enabled) {
+	if (observerState.enabled && cvar_disabled.GetInt() == 0) {
 		float rate = Math.max(observerState.updateRate / 10.0f, 0.1f);
 		g_Scheduler.SetTimeout("helpLostPlayer", rate, h_plr);
 	}
@@ -446,6 +450,10 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 	{
 		if ( args[0] == ".lost" )
 		{
+			if (cvar_disabled.GetInt() != 0) {
+				g_PlayerFuncs.SayText(plr, "Player tracking is disabled on this map.\n");
+				return true;
+			}
 			CBasePlayer@ targetPlr = null;
 			if ( args.ArgC() >= 3 && args[1] == "delay" ) {				
 				int newRate = atoi(args[2]);
