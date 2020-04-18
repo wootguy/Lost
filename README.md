@@ -11,6 +11,7 @@ Here's a demo of it:
 
 - `.lost` = Toggles tracking for all players  
 - `.lost delay [1-10]` = Change how often tags are updated. Increase this if you're getting excessive flickering.
+- `.lost hide [0-1]` = Prevents others from tracking you.
 - `.lost mode [mode]` = Change tracking mode
   - `.lost mode full` = Default. Show name tags for visible/invisible players
   - `.lost mode simple` = Only show dots for invisible players.
