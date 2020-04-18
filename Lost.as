@@ -13,6 +13,7 @@ class PlayerState
 	bool filteredTracking = false;
 	int updateRate = 1;
 	int mode = MODE_FULL;
+	bool hidden = false;
 }
  
 
@@ -351,6 +352,13 @@ void helpLostPlayer(EHandle h_plr)
 			continue;
 		if (observerState.filteredTracking and !observerState.targetPlrs.exists(stateKeys[i]))
 			continue;
+		if (state.hidden) {
+			if (observerState.filteredTracking) {
+				observerState.targetPlrs.delete(stateKeys[i]);
+				g_PlayerFuncs.SayText(plr, "" + target.pev.netname + " is now hiding and can't be tracked.\n");
+			}
+			continue;
+		}
 		
 		Vector delta = (target.pev.origin - plr.pev.origin).Normalize();
 		
@@ -451,6 +459,18 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 				return true;
 			}
 			
+			if ( args.ArgC() >= 3 && args[1] == "hide" ) {
+				state.hidden = atoi(args[2]) != 0;
+				
+				if (state.hidden) {
+					g_PlayerFuncs.SayText(plr, "You are now hidden. No one can track you.\n");
+				} else {
+					g_PlayerFuncs.SayText(plr, "You are now visible. Anyone can track you.\n");
+				}
+				
+				return true;
+			}
+			
 			if ( args.ArgC() >= 3 && args[1] == "mode" ) {				
 				string mode = args[2].ToLowercase();
 				
@@ -491,6 +511,13 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 			}
 			
 			if (targetPlr !is null) {
+				PlayerState@ targetState = getPlayerState(targetPlr);
+				
+				if (targetState.hidden) {
+					g_PlayerFuncs.SayText(plr, "" + targetPlr.pev.netname + " is hiding and can't be tracked.\n");
+					return true;
+				}
+			
 				state.filteredTracking = true;
 				
 				string targetId = getPlayerUniqueId(targetPlr);
