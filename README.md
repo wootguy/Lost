@@ -18,6 +18,10 @@ Here's a demo of it:
 
 If you specify a player name after the `.lost` command, tracking will be enabled for only that player (e.g. `.lost w00tguy`). You can use a partial name or steamID here too (e.g. `.lost guy`). Names with spaces in them should be surrounded with quotes. You can repeat this command to track other players.
 
+# CVars
+
+`as_command lost.disabled 1` = disables the plugin
+
 # Server Impact
 
 The effect is created with temporary entities, so there should be no stability problems. Net usage might be high with a lot of players though. The worst case scenario of 32 players all >1000 meters away with long names would create 63 beams and 29 sprites. Clients can disable the tracking or increase the update delay with `.lost delay` if there is any lag or flickering.
