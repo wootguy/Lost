@@ -1,5 +1,6 @@
 enum tracking_modes {
-	MODE_FULL,	 // player name tags shown through walls
+	MODE_FULL,	 // player name tags shown through walls and shown locally
+	MODE_INVIS,  // player name tags shown through walls only, not locally
 	MODE_LOCAL,  // player name tags shown on visible players only. No dots.
 	MODE_SIMPLE  // player dots shown through walls
 }
@@ -22,6 +23,7 @@ dictionary player_states;
 bool abort_updates = false;
 
 string font_sprite = "sprites/as_lost/consolas96.spr";
+string dot_sprite = "sprites/as_lost/dot.spr";
 int maxNameLength = 16;
 
 CCVar@ cvar_disabled;
@@ -73,6 +75,7 @@ void PluginInit()
 void MapInit()
 {
 	g_Game.PrecacheModel(font_sprite);
+	g_Game.PrecacheModel(dot_sprite);
 	abort_updates = false;
 }
 
@@ -230,7 +233,7 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 	//te_beampoints(observer.pev.origin, textOri + textVert);
 	
 	if (dot_only) {
-		te_sprite(pos, "sprites/glow01.spr", int(scale*10), 255, MSG_ONE_UNRELIABLE, observer.edict());
+		te_sprite(pos, dot_sprite, int(scale*10), 255, MSG_ONE_UNRELIABLE, observer.edict());
 		return;
 	}
 	
@@ -263,7 +266,7 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 }
 
 // display name overhead
-void showNameTag(CBasePlayer@ observer, CBaseEntity@ target, PlayerState@ state, bool dot_only, bool visible_only)
+void showNameTag(CBasePlayer@ observer, CBaseEntity@ target, PlayerState@ state, bool dot_only, int mode)
 {
 	if (observer is null or target is null or abort_updates)
 		return;
@@ -305,15 +308,15 @@ void showNameTag(CBasePlayer@ observer, CBaseEntity@ target, PlayerState@ state,
 	Vector pos;
 	if (lineOfSight)
 	{
-		if (!dot_only) {
+		if (!dot_only && mode != MODE_INVIS) {
 			pos = target.pev.origin;
 			pos.z += 50.0f;
 			dstr = "";
 			displayText(pos, observer, target, dstr + name, 0.2f, state.updateRate, false);
 		}
 	}
-	else if (!visible_only)
-	{		
+	else if (mode != MODE_LOCAL)
+	{
 		pos = observer.pev.origin + delta.Normalize()*maxDist*0.99f;
 		
 		if (bodySight)
@@ -331,6 +334,7 @@ void showNameTag(CBasePlayer@ observer, CBaseEntity@ target, PlayerState@ state,
 class LostTarget {
 	CBaseEntity@ target;
 	float observerDot; // how closely the target aligns with the observer's center of view
+	bool lineOfSight; // is there a line-of-sight with this player?
 }
 
 void helpLostPlayer(EHandle h_plr)
@@ -383,9 +387,9 @@ void helpLostPlayer(EHandle h_plr)
 	
 	for (uint i = 0; i < targets.size(); i++) {
 		if (i < 3 && observerState.mode != MODE_SIMPLE) {
-			showNameTag(plr, targets[i].target, observerState, false, observerState.mode == MODE_LOCAL);
+			showNameTag(plr, targets[i].target, observerState, false, observerState.mode);
 		} else if (observerState.mode != MODE_LOCAL) {
-			showNameTag(plr, targets[i].target, observerState, true, false);
+			showNameTag(plr, targets[i].target, observerState, true, observerState.mode);
 		}
 	}
 	
@@ -485,6 +489,9 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 				if (mode == "full") {
 					g_PlayerFuncs.SayText(plr, "Tracking mode set to FULL. Name tags shown for all players.\n");
 					state.mode = MODE_FULL;
+				} else if (mode == "invis") {
+					g_PlayerFuncs.SayText(plr, "Tracking mode set to INVIS. Name tags for invisible players only.\n");
+					state.mode = MODE_INVIS;
 				} else if (mode == "local") {
 					g_PlayerFuncs.SayText(plr, "Tracking mode set to LOCAL. Name tags shown for visible players only.\n");
 					state.mode = MODE_LOCAL;
@@ -492,7 +499,7 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 					g_PlayerFuncs.SayText(plr, "Tracking mode set to SIMPLE. Dots shown for invisible players.\n");
 					state.mode = MODE_SIMPLE;
 				} else {
-					g_PlayerFuncs.SayText(plr, "Unknown mode. Must be FULL, SIMPLE, or LOCAL\n");
+					g_PlayerFuncs.SayText(plr, "Unknown mode. Must be FULL, INVIS, SIMPLE, or LOCAL\n");
 				}
 				
 				return true;
