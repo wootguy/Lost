@@ -7,7 +7,6 @@ enum tracking_modes {
 
 class PlayerState
 {
-	EHandle plr;
 	dictionary targetPlrs; // player state keys
 	CScheduledFunction@ interval; // handle to the interval
 	bool enabled = false;
@@ -15,6 +14,8 @@ class PlayerState
 	int updateRate = 1;
 	int mode = MODE_FULL;
 	bool hidden = false;
+	float pingTime = 0; // player is pinging if >0
+	float lastPingTime = 0;
 }
  
 
@@ -24,6 +25,7 @@ bool abort_updates = false;
 
 string font_sprite = "sprites/as_lost/consolas96.spr";
 string dot_sprite = "sprites/as_lost/dot.spr";
+string sonar_sound = "as_lost/sonar.wav";
 int maxNameLength = 16;
 
 CCVar@ cvar_disabled;
@@ -42,7 +44,6 @@ PlayerState@ getPlayerState(CBasePlayer@ plr)
 	if ( !player_states.exists(steamId) )
 	{
 		PlayerState state;
-		state.plr = plr;
 		player_states[steamId] = state;
 		//println("ADDED STATE FOR: " + steamId);
 	}
@@ -76,6 +77,10 @@ void MapInit()
 {
 	g_Game.PrecacheModel(font_sprite);
 	g_Game.PrecacheModel(dot_sprite);
+	
+	g_Game.PrecacheGeneric("sound/" + sonar_sound);
+	g_SoundSystem.PrecacheSound(sonar_sound);
+	
 	abort_updates = false;
 }
 
@@ -128,12 +133,10 @@ HookReturnCode ClientLeave(CBasePlayer@ leaver)
 	for (uint i = 0; i < stateKeys.length(); i++)
 	{
 		PlayerState@ state = cast<PlayerState@>( player_states[stateKeys[i]] );
-		CBaseEntity@ plr = state.plr;
 		if (stateKeys[i] == steamId)
 		{
 			if (state.interval !is null)
 				g_Scheduler.RemoveTimer(state.interval);
-			state.plr = null;
 			break;
 		}
 	}
@@ -142,7 +145,7 @@ HookReturnCode ClientLeave(CBasePlayer@ leaver)
 	return HOOK_CONTINUE;
 }
 
-void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string text, float scale, int life, bool dot_only)
+void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string text, Color color, float scale, int life, bool dot_only)
 {
 	if (dot_only) {
 		text = "O";
@@ -174,6 +177,7 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 	
 	if (dot_only) {
 		charWidth = charHeight = 32.0f;
+		scale *= 1.5f;
 	}
 	
 	// calculate a bounding square for the text
@@ -233,7 +237,7 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 	//te_beampoints(observer.pev.origin, textOri + textVert);
 	
 	if (dot_only) {
-		te_sprite(pos, dot_sprite, int(scale*10), 255, MSG_ONE_UNRELIABLE, observer.edict());
+		te_sprite(pos, dot_sprite, int(scale*10), color.a, MSG_ONE_UNRELIABLE, observer.edict());
 		return;
 	}
 	
@@ -256,7 +260,7 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 			
 			Vector charPos = pos + textAxis*x + newlineAxis*y;
 
-			te_beampoints(charPos - beamCharExtent, charPos + beamCharExtent, font_sprite, c, 0, life, beamWidth, 0, WHITE, 0, MSG_ONE_UNRELIABLE, observer.edict());
+			te_beampoints(charPos - beamCharExtent, charPos + beamCharExtent, font_sprite, c, 0, life, beamWidth, 0, color, 0, MSG_ONE_UNRELIABLE, observer.edict());
 			
 			x += charWidth;
 		}
@@ -266,11 +270,16 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 }
 
 // display name overhead
-void showNameTag(CBasePlayer@ observer, CBaseEntity@ target, PlayerState@ state, bool dot_only, int mode)
+Vector showNameTag(CBasePlayer@ observer, LostTarget targetInfo, PlayerState@ state, bool dot_only)
 {
+	CBaseEntity@ target = targetInfo.h_target;
+	
 	if (observer is null or target is null or abort_updates)
-		return;
-		
+		return Vector();
+	
+	Vector tagPos = targetInfo.lastTagOrigin;
+	bool useTagPos = tagPos.x != 0 or tagPos.y != 0 or tagPos.z != 0;
+	
 	string name = target.pev.netname;
 	
 	if (int(name.Length()) > maxNameLength)
@@ -297,7 +306,7 @@ void showNameTag(CBasePlayer@ observer, CBaseEntity@ target, PlayerState@ state,
 	lineOfSight = lineOfSight or isSelf;
 	
 	if (isSelf)
-		return;
+		return Vector();
 	
 	float meters = Math.max(0, (dist/33.0f) - 1.0f);
 	string dstr = "" + int(meters) + "m\n";
@@ -308,14 +317,20 @@ void showNameTag(CBasePlayer@ observer, CBaseEntity@ target, PlayerState@ state,
 	Vector pos;
 	if (lineOfSight)
 	{
-		if (!dot_only && mode != MODE_INVIS) {
+		if (!dot_only && state.mode != MODE_INVIS) {
 			pos = target.pev.origin;
 			pos.z += 50.0f;
 			dstr = "";
-			displayText(pos, observer, target, dstr + name, 0.2f, state.updateRate, false);
+			
+			if (useTagPos) {
+				pos = tagPos;
+			}
+			
+			displayText(pos, observer, target, dstr + name, targetInfo.color, 0.2f, state.updateRate, false);
+			return pos;
 		}
 	}
-	else if (mode != MODE_LOCAL)
+	else if (state.mode != MODE_LOCAL)
 	{
 		pos = observer.pev.origin + delta.Normalize()*maxDist*0.99f;
 		
@@ -327,17 +342,27 @@ void showNameTag(CBasePlayer@ observer, CBaseEntity@ target, PlayerState@ state,
 		else
 			pos.z += 20.0f;
 		
-		displayText(pos, observer, target, dstr + name, 0.2f, state.updateRate, dot_only);
+		if (useTagPos) {
+			pos = tagPos;
+		}
+		
+		displayText(pos, observer, target, dstr + name, targetInfo.color, 0.2f, state.updateRate, dot_only);
+		return pos;
 	}
+	
+	return Vector();
 }
 
 class LostTarget {
-	CBaseEntity@ target;
+	EHandle h_target;
 	float observerDot; // how closely the target aligns with the observer's center of view
-	bool lineOfSight; // is there a line-of-sight with this player?
+	Vector lastTagOrigin; // position of the nametag at the time of the ping
+	Color color;
 }
 
-void helpLostPlayer(EHandle h_plr)
+const float PING_DURATION = 2.5f;
+
+void helpLostPlayer(EHandle h_plr, array<LostTarget> targets)
 {
 	CBasePlayer@ plr = cast<CBasePlayer@>(h_plr.GetEntity());
 	
@@ -346,35 +371,72 @@ void helpLostPlayer(EHandle h_plr)
 	}
 	
 	PlayerState@ observerState = getPlayerState(plr);
+	bool isPinging = observerState.pingTime > 0;
+	float pingAge = g_Engine.time - observerState.pingTime;
+	if (isPinging and pingAge > PING_DURATION) {
+		observerState.enabled = false;
+		observerState.pingTime = 0;
+		return;
+	}
+	
 	Math.MakeVectors( plr.pev.v_angle );
 	Vector lookDir = g_Engine.v_forward;
 	lookDir.Normalize();
-	array<LostTarget> targets; // players most in line with the observers view (should get name tags)
+	bool saveTagPositions = targets.size() == 0;
 
-	array<string>@ stateKeys = player_states.getKeys();
-	for (uint i = 0; i < stateKeys.length(); i++)
-	{
-		PlayerState@ state = cast<PlayerState@>( player_states[stateKeys[i]] );
-		CBasePlayer@ target = cast<CBasePlayer@>(state.plr.GetEntity());
-		if (target is null or !target.IsConnected() or target.entindex() == plr.entindex())
-			continue;
-		if (observerState.filteredTracking and !observerState.targetPlrs.exists(stateKeys[i]))
-			continue;
-		if (state.hidden) {
-			if (observerState.filteredTracking) {
-				observerState.targetPlrs.delete(stateKeys[i]);
-				g_PlayerFuncs.SayText(plr, "" + target.pev.netname + " is now hiding and can't be tracked.\n");
+	if (targets.size() == 0) {
+		for (int i = 1; i <= g_Engine.maxClients; i++) {
+			CBasePlayer@ target = g_PlayerFuncs.FindPlayerByIndex(i);
+			
+			if (target is null or !target.IsConnected()) {
+				continue;
 			}
-			continue;
+			
+			PlayerState@ state = getPlayerState(target);
+			string steamId = getPlayerUniqueId(target);
+			
+			if (target is null or !target.IsConnected() or target.entindex() == plr.entindex())
+				continue;
+			if (!target.IsAlive() and target.GetObserver().IsObserver())
+				continue;
+			if (observerState.filteredTracking and !observerState.targetPlrs.exists(steamId))
+				continue;
+			if (state.hidden) {
+				if (observerState.filteredTracking) {
+					observerState.targetPlrs.delete(steamId);
+					g_PlayerFuncs.SayText(plr, "" + target.pev.netname + " is now hiding and can't be tracked.\n");
+				}
+				continue;
+			}
+			
+			Vector delta = (target.pev.origin - plr.pev.origin).Normalize();
+			
+			LostTarget lostTarget;
+			lostTarget.h_target = EHandle(target);
+			lostTarget.observerDot = DotProduct(lookDir, delta);
+			lostTarget.color = WHITE;
+			
+			targets.insertLast(lostTarget);
 		}
+	} else {
+		// pinging
 		
-		Vector delta = (target.pev.origin - plr.pev.origin).Normalize();
-		
-		LostTarget lostTarget;
-		@lostTarget.target = @target;
-		lostTarget.observerDot = DotProduct(lookDir, delta);
-		
-		targets.insertLast(lostTarget);
+		for (uint i = 0; i < targets.size(); i++) {
+			CBasePlayer@ target = cast<CBasePlayer@>(targets[i].h_target.GetEntity());
+			if (target is null or !target.IsConnected()) {
+				continue;
+			}
+			
+			Vector delta = (target.pev.origin - plr.pev.origin).Normalize();
+			targets[i].observerDot = DotProduct(lookDir, delta);
+			
+			float pingLeft = PING_DURATION - pingAge;
+			println("PLEFT: " + pingLeft);
+			
+			float brightness = pingLeft > 1.0f ? 1.0f : pingLeft;
+			brightness = brightness*brightness; // fade out curve
+			targets[i].color = Color(255, 255, 255, brightness * 255);
+		}
 	}
 	
 	if (observerState.mode != MODE_SIMPLE) {
@@ -386,10 +448,20 @@ void helpLostPlayer(EHandle h_plr)
 	}
 	
 	for (uint i = 0; i < targets.size(); i++) {
+		CBasePlayer@ target = cast<CBasePlayer@>(targets[i].h_target.GetEntity());
+		if (target is null or !target.IsConnected()) {
+			continue;
+		}
+	
+		Vector tagPos;
 		if (i < 3 && observerState.mode != MODE_SIMPLE) {
-			showNameTag(plr, targets[i].target, observerState, false, observerState.mode);
+			tagPos = showNameTag(plr, targets[i], observerState, false);
 		} else if (observerState.mode != MODE_LOCAL) {
-			showNameTag(plr, targets[i].target, observerState, true, observerState.mode);
+			tagPos = showNameTag(plr, targets[i], observerState, true);
+		}
+		
+		if (saveTagPositions) {
+			targets[i].lastTagOrigin = tagPos;
 		}
 	}
 	
@@ -397,7 +469,7 @@ void helpLostPlayer(EHandle h_plr)
 	
 	if (observerState.enabled && cvar_disabled.GetInt() == 0) {
 		float rate = Math.max(observerState.updateRate / 10.0f, 0.1f);
-		g_Scheduler.SetTimeout("helpLostPlayer", rate, h_plr);
+		g_Scheduler.SetTimeout("helpLostPlayer", rate, h_plr, isPinging ? targets : array<LostTarget>());
 	}
 }
 
@@ -452,6 +524,25 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 	
 	if ( args.ArgC() >= 1 )
 	{
+		if (args[0] == ".ping") {
+			if (g_Engine.time - state.lastPingTime < PING_DURATION + 0.1f) {
+				return true;
+			}
+			state.enabled = true;
+			state.pingTime = g_Engine.time + 0.3f;
+			state.lastPingTime = state.pingTime;
+			g_Scheduler.SetTimeout("helpLostPlayer", 0.3f, EHandle(plr), array<LostTarget>());
+			
+			int life = 8;
+			int width = 8;
+			Color color = Color(0, 255, 0, 16);
+			te_beamtorus(plr.pev.origin, 3000.0f, "sprites/laserbeam.spr", 0, 16, life, width, 0, color, 0,
+						 MSG_ONE_UNRELIABLE, plr.edict());
+						 
+			g_SoundSystem.PlaySound(plr.edict(), CHAN_VOICE, sonar_sound, 0.5f, ATTN_NONE, 0, 100, plr.entindex());
+			
+			return true;
+		}
 		if ( args[0] == ".lost" )
 		{
 			if (cvar_disabled.GetInt() != 0) {
@@ -551,7 +642,7 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 			
 			if (!state.enabled) {
 				state.enabled = true;
-				g_Scheduler.SetTimeout("helpLostPlayer", 0.0f, EHandle(plr));
+				g_Scheduler.SetTimeout("helpLostPlayer", 0.0f, EHandle(plr), array<LostTarget>());
 			}
 			
 			return true;
@@ -576,6 +667,7 @@ HookReturnCode ClientSay( SayParameters@ pParams )
 }
 
 CClientCommand _lost("lost", "Find other players", @consoleCmd );
+CClientCommand _lost2("ping", "Find other players", @consoleCmd );
 
 void consoleCmd( const CCommand@ args )
 {
@@ -589,6 +681,48 @@ void println(string text) { print(text + "\n"); }
 void te_explosion(Vector pos, string sprite="sprites/zerogxplode.spr", int scale=10, int frameRate=15, int flags=0, NetworkMessageDest msgType=MSG_BROADCAST, edict_t@ dest=null) { NetworkMessage m(msgType, NetworkMessages::SVC_TEMPENTITY, dest);m.WriteByte(TE_EXPLOSION);m.WriteCoord(pos.x);m.WriteCoord(pos.y);m.WriteCoord(pos.z);m.WriteShort(g_EngineFuncs.ModelIndex(sprite));m.WriteByte(scale);m.WriteByte(frameRate);m.WriteByte(flags);m.End(); }
 void te_sprite(Vector pos, string sprite="sprites/zerogxplode.spr", uint8 scale=10, uint8 alpha=200, NetworkMessageDest msgType=MSG_BROADCAST, edict_t@ dest=null) { NetworkMessage m(msgType, NetworkMessages::SVC_TEMPENTITY, dest);m.WriteByte(TE_SPRITE);m.WriteCoord(pos.x); m.WriteCoord(pos.y);m.WriteCoord(pos.z);m.WriteShort(g_EngineFuncs.ModelIndex(sprite));m.WriteByte(scale); m.WriteByte(alpha);m.End();}
 void te_beampoints(Vector start, Vector end, string sprite="sprites/laserbeam.spr", uint8 frameStart=0, uint8 frameRate=100, uint8 life=1, uint8 width=2, uint8 noise=0, Color c=GREEN, uint8 scroll=32, NetworkMessageDest msgType=MSG_BROADCAST, edict_t@ dest=null) { NetworkMessage m(msgType, NetworkMessages::SVC_TEMPENTITY, dest);m.WriteByte(TE_BEAMPOINTS);m.WriteCoord(start.x);m.WriteCoord(start.y);m.WriteCoord(start.z);m.WriteCoord(end.x);m.WriteCoord(end.y);m.WriteCoord(end.z);m.WriteShort(g_EngineFuncs.ModelIndex(sprite));m.WriteByte(frameStart);m.WriteByte(frameRate);m.WriteByte(life);m.WriteByte(width);m.WriteByte(noise);m.WriteByte(c.r);m.WriteByte(c.g);m.WriteByte(c.b);m.WriteByte(c.a);m.WriteByte(scroll);m.End(); }
+void te_beamtorus(Vector pos, float radius, 
+	string sprite="sprites/laserbeam.spr", uint8 startFrame=0, 
+	uint8 frameRate=16, uint8 life=8, uint8 width=8, uint8 noise=0, 
+	Color c=PURPLE, uint8 scrollSpeed=0, 
+	NetworkMessageDest msgType=MSG_BROADCAST, edict_t@ dest=null)
+{
+	NetworkMessage m(msgType, NetworkMessages::SVC_TEMPENTITY, dest);
+	m.WriteByte(TE_BEAMTORUS);
+	m.WriteCoord(pos.x);
+	m.WriteCoord(pos.y);
+	m.WriteCoord(pos.z);
+	m.WriteCoord(pos.x);
+	m.WriteCoord(pos.y);
+	m.WriteCoord(pos.z + radius);
+	m.WriteShort(g_EngineFuncs.ModelIndex(sprite));
+	m.WriteByte(startFrame);
+	m.WriteByte(frameRate);
+	m.WriteByte(life);
+	m.WriteByte(width);
+	m.WriteByte(noise);
+	m.WriteByte(c.r);
+	m.WriteByte(c.g);
+	m.WriteByte(c.b);
+	m.WriteByte(c.a);
+	m.WriteByte(scrollSpeed);
+	m.End();
+}
+void te_glowsprite(Vector pos, string sprite="sprites/glow01.spr", 
+	uint8 life=1, uint8 scale=10, uint8 alpha=255, 
+	NetworkMessageDest msgType=MSG_BROADCAST, edict_t@ dest=null)
+{
+	NetworkMessage m(msgType, NetworkMessages::SVC_TEMPENTITY, dest);
+	m.WriteByte(TE_GLOWSPRITE);
+	m.WriteCoord(pos.x);
+	m.WriteCoord(pos.y);
+	m.WriteCoord(pos.z);
+	m.WriteShort(g_EngineFuncs.ModelIndex(sprite));
+	m.WriteByte(life);
+	m.WriteByte(scale);
+	m.WriteByte(alpha);
+	m.End();
+}
 
 class Color
 { 
