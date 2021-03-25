@@ -399,6 +399,8 @@ void helpLostPlayer(EHandle h_plr, array<LostTarget> targets)
 				continue;
 			if (!target.IsAlive() and target.GetObserver().IsObserver())
 				continue;
+			if (target.Classify() != plr.Classify())
+				continue;
 			if (observerState.filteredTracking and !observerState.targetPlrs.exists(steamId))
 				continue;
 			if (state.hidden) {
@@ -431,8 +433,6 @@ void helpLostPlayer(EHandle h_plr, array<LostTarget> targets)
 			targets[i].observerDot = DotProduct(lookDir, delta);
 			
 			float pingLeft = PING_DURATION - pingAge;
-			println("PLEFT: " + pingLeft);
-			
 			float brightness = pingLeft > 1.0f ? 1.0f : pingLeft;
 			brightness = brightness*brightness; // fade out curve
 			targets[i].color = Color(255, 255, 255, brightness * 255);
@@ -524,9 +524,18 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 	
 	if ( args.ArgC() >= 1 )
 	{
-		if (args[0] == ".ping") {
-			if (g_Engine.time - state.lastPingTime < PING_DURATION + 0.1f) {
+		if (args[0] == ".ping" || args[0] == ".lost") {
+			float delta = g_Engine.time - state.lastPingTime;
+			float waitTime = (PING_DURATION + 0.1f) - delta;
+			if (waitTime > 0) {
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCENTER, "Wait " + int(waitTime + 0.99f) + " seconds\n");
 				return true;
+			}
+		}
+		
+		if (args[0] == ".ping") {
+			if (state.enabled) {
+				g_PlayerFuncs.SayText(plr, "Player tracking disabled\n");
 			}
 			state.enabled = true;
 			state.pingTime = g_Engine.time + 0.3f;
@@ -550,7 +559,7 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 				return true;
 			}
 			CBasePlayer@ targetPlr = null;
-			if ( args.ArgC() >= 3 && args[1] == "delay" ) {				
+			if ( args.ArgC() >= 3 && args[1] == "delay" ) {
 				int newRate = atoi(args[2]);
 				
 				newRate = Math.min(10, newRate);
@@ -559,6 +568,33 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 				g_PlayerFuncs.SayText(plr, "Update delay set to " + newRate + "\n");
 				
 				state.updateRate = newRate;
+				return true;
+			}
+			
+			if (args.ArgC() >= 2 && args[1] == "help") {
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, '\n--------------------------------Lost Commands--------------------------------\n\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, 'This plugin helps you find other players.\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, 'Observers and players on enemy teams are not tracked.\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, '\nType ".ping" to quickly check for other players.\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, '\nType ".lost" to toggle player tracking.\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, '\nType ".lost [player name]" to toggle tracking for a specific player.\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, '    - Steam IDs and partial names also work (e.g. "guy" instead of "w00tguy")\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, '    - Names with spaces in them should be surrounded with quotes\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, '    - Repeat this command to track/untrack more players\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, '\nType ".lost hide [1/0]" to prevent or allow others to track you.\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, '\nType ".lost delay [1-10]" to change how often tags are updated.\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, '    - Increase this if you\'re getting excessive flickering\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, '\nType ".lost mode [mode]" to change tracking mode.\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, '    - FULL   = show name tags for both visible/invisible players\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, '    - INVIS  = show name tags for invisible players only\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, '    - LOCAL  = show name tags for visible players only\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, '    - SIMPLE = show dots for invisible players only\n');
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, '\n-----------------------------------------------------------------------------\n\n');
+				
+				g_PlayerFuncs.SayText(plr, "Say \".ping\" to quickly check for players.\n");
+				g_PlayerFuncs.SayText(plr, "Say \".lost\" to toggle player tracking.\n");
+				g_PlayerFuncs.SayText(plr, "Check your console for more info and commands.\n");
+				
 				return true;
 			}
 			
@@ -632,7 +668,13 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 					g_PlayerFuncs.SayText(plr, "Tracking disabled for player " + targetPlr.pev.netname + "\n");
 				} else {
 					state.targetPlrs[targetId] = true;
-					g_PlayerFuncs.SayText(plr, "Tracking player " + targetPlr.pev.netname + "\n");
+					string msg = "Tracking player " + targetPlr.pev.netname;
+					if (targetPlr.Classify() != plr.Classify()) {
+						msg += " (not shown currently due to being on a different team)";
+					} else if (targetPlr.IsAlive() and targetPlr.GetObserver().IsObserver()) {
+						msg += " (not shown currently due to being an observer)";
+					}
+					g_PlayerFuncs.SayText(plr, msg + "\n");
 				}
 			}
 			else {
