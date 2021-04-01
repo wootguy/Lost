@@ -12,7 +12,7 @@ class PlayerState
 	bool enabled = false;
 	bool filteredTracking = false;
 	int updateRate = 1;
-	int mode = MODE_FULL;
+	int mode = MODE_INVIS;
 	bool hidden = false;
 	float pingTime = 0; // player is pinging if >0
 	float lastPingTime = 0;
@@ -25,8 +25,10 @@ bool abort_updates = false;
 
 string font_sprite = "sprites/as_lost/consolas96.spr";
 string dot_sprite = "sprites/as_lost/dot.spr";
+int pingSpriteIdx = -1;
+int dotSpriteIdx = -1;
 string sonar_sound = "as_lost/sonar.wav";
-int maxNameLength = 16;
+int maxNameLength = 12;
 
 CCVar@ cvar_disabled;
 
@@ -77,6 +79,8 @@ void MapInit()
 {
 	g_Game.PrecacheModel(font_sprite);
 	g_Game.PrecacheModel(dot_sprite);
+	pingSpriteIdx = g_Game.PrecacheModel("sprites/laserbeam.spr");
+	dotSpriteIdx = g_Game.PrecacheModel("sprites/glow01.spr");
 	
 	g_Game.PrecacheGeneric("sound/" + sonar_sound);
 	g_SoundSystem.PrecacheSound(sonar_sound);
@@ -285,7 +289,7 @@ Vector showNameTag(CBasePlayer@ observer, LostTarget targetInfo, PlayerState@ st
 	if (int(name.Length()) > maxNameLength)
 	{
 		int middle = name.Length() / 2;
-		name = name.SubString(0, 7) + ".." + name.SubString(name.Length()-7, name.Length());
+		name = name.SubString(0, 5) + ".." + name.SubString(name.Length()-5, name.Length());
 	}
 	
 	Vector delta = target.pev.origin - observer.pev.origin;
@@ -326,7 +330,7 @@ Vector showNameTag(CBasePlayer@ observer, LostTarget targetInfo, PlayerState@ st
 				pos = tagPos;
 			}
 			
-			displayText(pos, observer, target, dstr + name, targetInfo.color, 0.2f, state.updateRate, false);
+			displayText(pos, observer, target, dstr + name, targetInfo.color, 0.1f, state.updateRate, false);
 			return pos;
 		}
 	}
@@ -346,7 +350,7 @@ Vector showNameTag(CBasePlayer@ observer, LostTarget targetInfo, PlayerState@ st
 			pos = tagPos;
 		}
 		
-		displayText(pos, observer, target, dstr + name, targetInfo.color, 0.2f, state.updateRate, dot_only);
+		displayText(pos, observer, target, dstr + name, targetInfo.color, 0.1f, state.updateRate, dot_only);
 		return pos;
 	}
 	
@@ -545,7 +549,7 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args)
 			int life = 8;
 			int width = 8;
 			Color color = Color(0, 255, 0, 16);
-			te_beamtorus(plr.pev.origin, 3000.0f, "sprites/laserbeam.spr", 0, 16, life, width, 0, color, 0,
+			te_beamtorus(plr.pev.origin, 3000.0f, pingSpriteIdx, 0, 16, life, width, 0, color, 0,
 						 MSG_ONE_UNRELIABLE, plr.edict());
 						 
 			g_SoundSystem.PlaySound(plr.edict(), CHAN_VOICE, sonar_sound, 0.5f, ATTN_NONE, 0, 100, plr.entindex());
@@ -724,7 +728,7 @@ void te_explosion(Vector pos, string sprite="sprites/zerogxplode.spr", int scale
 void te_sprite(Vector pos, string sprite="sprites/zerogxplode.spr", uint8 scale=10, uint8 alpha=200, NetworkMessageDest msgType=MSG_BROADCAST, edict_t@ dest=null) { NetworkMessage m(msgType, NetworkMessages::SVC_TEMPENTITY, dest);m.WriteByte(TE_SPRITE);m.WriteCoord(pos.x); m.WriteCoord(pos.y);m.WriteCoord(pos.z);m.WriteShort(g_EngineFuncs.ModelIndex(sprite));m.WriteByte(scale); m.WriteByte(alpha);m.End();}
 void te_beampoints(Vector start, Vector end, string sprite="sprites/laserbeam.spr", uint8 frameStart=0, uint8 frameRate=100, uint8 life=1, uint8 width=2, uint8 noise=0, Color c=GREEN, uint8 scroll=32, NetworkMessageDest msgType=MSG_BROADCAST, edict_t@ dest=null) { NetworkMessage m(msgType, NetworkMessages::SVC_TEMPENTITY, dest);m.WriteByte(TE_BEAMPOINTS);m.WriteCoord(start.x);m.WriteCoord(start.y);m.WriteCoord(start.z);m.WriteCoord(end.x);m.WriteCoord(end.y);m.WriteCoord(end.z);m.WriteShort(g_EngineFuncs.ModelIndex(sprite));m.WriteByte(frameStart);m.WriteByte(frameRate);m.WriteByte(life);m.WriteByte(width);m.WriteByte(noise);m.WriteByte(c.r);m.WriteByte(c.g);m.WriteByte(c.b);m.WriteByte(c.a);m.WriteByte(scroll);m.End(); }
 void te_beamtorus(Vector pos, float radius, 
-	string sprite="sprites/laserbeam.spr", uint8 startFrame=0, 
+	int spriteIdx, uint8 startFrame=0, 
 	uint8 frameRate=16, uint8 life=8, uint8 width=8, uint8 noise=0, 
 	Color c=PURPLE, uint8 scrollSpeed=0, 
 	NetworkMessageDest msgType=MSG_BROADCAST, edict_t@ dest=null)
@@ -737,7 +741,7 @@ void te_beamtorus(Vector pos, float radius,
 	m.WriteCoord(pos.x);
 	m.WriteCoord(pos.y);
 	m.WriteCoord(pos.z + radius);
-	m.WriteShort(g_EngineFuncs.ModelIndex(sprite));
+	m.WriteShort(spriteIdx);
 	m.WriteByte(startFrame);
 	m.WriteByte(frameRate);
 	m.WriteByte(life);
@@ -750,7 +754,7 @@ void te_beamtorus(Vector pos, float radius,
 	m.WriteByte(scrollSpeed);
 	m.End();
 }
-void te_glowsprite(Vector pos, string sprite="sprites/glow01.spr", 
+void te_glowsprite(Vector pos, int dotSpriteIdx, 
 	uint8 life=1, uint8 scale=10, uint8 alpha=255, 
 	NetworkMessageDest msgType=MSG_BROADCAST, edict_t@ dest=null)
 {
@@ -759,7 +763,7 @@ void te_glowsprite(Vector pos, string sprite="sprites/glow01.spr",
 	m.WriteCoord(pos.x);
 	m.WriteCoord(pos.y);
 	m.WriteCoord(pos.z);
-	m.WriteShort(g_EngineFuncs.ModelIndex(sprite));
+	m.WriteShort(dotSpriteIdx);
 	m.WriteByte(life);
 	m.WriteByte(scale);
 	m.WriteByte(alpha);
