@@ -12,7 +12,7 @@ class PlayerState
 	bool enabled = false;
 	bool filteredTracking = false;
 	int updateRate = 1;
-	int mode = MODE_INVIS;
+	int mode = MODE_FULL;
 	bool hidden = false;
 	float pingTime = 0; // player is pinging if >0
 	float lastPingTime = 0;
@@ -292,14 +292,13 @@ Vector showNameTag(CBasePlayer@ observer, LostTarget targetInfo, PlayerState@ st
 		name = name.SubString(0, 5) + ".." + name.SubString(name.Length()-5, name.Length());
 	}
 	
-	Vector delta = target.pev.origin - observer.pev.origin;
-	float dist = delta.Length();
-	
 	TraceResult tr, tr2;
-	Vector observerHead = observer.pev.origin + observer.pev.view_ofs ;
+	Vector observerHead = observer.pev.origin + observer.pev.view_ofs;
 	Vector targetHead = target.pev.origin + target.pev.view_ofs + Vector(0,0,40);
+	Vector delta = targetHead - observerHead;
+	float dist = delta.Length();
 	g_Utility.TraceHull( observerHead, targetHead, ignore_monsters, point_hull, observer.edict(), tr );
-	g_Utility.TraceHull( observerHead, targetHead - Vector(0,0,32), ignore_monsters, point_hull, observer.edict(), tr2 );
+	g_Utility.TraceHull( observerHead, target.pev.origin, ignore_monsters, point_hull, observer.edict(), tr2 );
 	float maxDist = Math.min(2048.0f, tr.flFraction*dist);
 	
 	CBaseEntity@ pHit = g_EntityFuncs.Instance( tr.pHit );
@@ -314,9 +313,6 @@ Vector showNameTag(CBasePlayer@ observer, LostTarget targetInfo, PlayerState@ st
 	
 	float meters = Math.max(0, (dist/33.0f) - 1.0f);
 	string dstr = "" + int(meters) + "m\n";
-	
-	//target.pev.netname = "TheQuick Brown Fox Jumped Over" + target.entindex();
-	//target.pev.netname = "w00tguy123";
 	
 	Vector pos;
 	if (lineOfSight)
@@ -335,19 +331,18 @@ Vector showNameTag(CBasePlayer@ observer, LostTarget targetInfo, PlayerState@ st
 		}
 	}
 	else if (state.mode != MODE_LOCAL)
-	{
-		pos = observer.pev.origin + delta.Normalize()*maxDist*0.99f;
-		
-		if (bodySight)
-		{
-			dstr = "";
-			pos.z += 15.0f;
-		}
-		else
-			pos.z += 20.0f;
-		
+	{		
 		if (useTagPos) {
 			pos = tagPos;
+		}
+		else if (bodySight) {
+			dstr = "";
+			pos = target.pev.origin - delta.Normalize()*32;
+		} 
+		else {
+			// player is completely obscured
+			// retrace to origin which is more accurate to where the player is, rather than the tag
+			pos = tr2.vecEndPos + tr2.vecPlaneNormal*4;
 		}
 		
 		displayText(pos, observer, target, dstr + name, targetInfo.color, 0.1f, state.updateRate, dot_only);
@@ -468,8 +463,6 @@ void helpLostPlayer(EHandle h_plr, array<LostTarget> targets)
 			targets[i].lastTagOrigin = tagPos;
 		}
 	}
-	
-	//for (int i = 0)
 	
 	if (observerState.enabled && cvar_disabled.GetInt() == 0) {
 		float rate = Math.max(observerState.updateRate / 10.0f, 0.1f);
