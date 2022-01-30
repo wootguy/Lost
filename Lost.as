@@ -257,6 +257,7 @@ void displayText(Vector pos, CBasePlayer@ observer, CBaseEntity@ plr, string tex
 		{
 			int c = int(lines[k][i]) - 32;			
 			if (c == 0) {
+				x += charWidth;
 				continue; // don't render spaces
 			} else if (c < 0 || c > 94) {
 				c = 0; // show unknown char
@@ -286,7 +287,14 @@ Vector showNameTag(CBasePlayer@ observer, LostTarget targetInfo, PlayerState@ st
 	
 	string name = target.pev.netname;
 	
-	if (int(name.Length()) > maxNameLength)
+	int nameChars = 0;
+	for (uint i = 0; i < name.Length(); i++) {
+		if (name[i] != 0) {
+			nameChars += 1;
+		}
+	}
+	
+	if (nameChars > maxNameLength)
 	{
 		int middle = name.Length() / 2;
 		name = name.SubString(0, 5) + ".." + name.SubString(name.Length()-5, name.Length());
