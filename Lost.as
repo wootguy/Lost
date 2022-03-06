@@ -373,7 +373,7 @@ void helpLostPlayer(EHandle h_plr, array<LostTarget> targets)
 {
 	CBasePlayer@ plr = cast<CBasePlayer@>(h_plr.GetEntity());
 	
-	if (plr is null) {
+	if (plr is null or !plr.IsConnected()) {
 		return;
 	}
 	
